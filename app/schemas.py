@@ -1,7 +1,7 @@
 # app/schemas.py
 from pydantic import BaseModel
 from datetime import datetime
-import time 
+from datetime import time
 from typing import List
 
 
