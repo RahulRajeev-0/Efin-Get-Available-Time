@@ -8,7 +8,8 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from pytz import timezone
 import pytz
 from datetime import datetime, date, timedelta
-from typing import List
+from typing import List, Dict
+
 
 
 def create_user(db: Session, user: UserCreate):
@@ -20,7 +21,20 @@ def create_user(db: Session, user: UserCreate):
 
 
 def create_general_availability(db: Session, availability: GeneralAvailabilityCreate):
+    """ Time will always be stored in UTC for every user but the timezone the user intented will be store in the 
+        timezone field of the db , so eventhough the start time and end time is in UTC not in the timezone mentioned
+        in the timezone field.
+
+    """
     try:
+        user_tz = timezone(availability.time_zone)
+        start_time_utc = user_tz.localize(
+            datetime.combine(datetime.today(), availability.start_time)
+        ).astimezone(timezone("UTC")).time()
+        end_time_utc = user_tz.localize(
+            datetime.combine(datetime.today(), availability.end_time)
+        ).astimezone(timezone("UTC")).time()
+
         # Check if the availability already exists for the user on the given day and time
         existing_availability = db.query(GeneralAvailability).filter(
             GeneralAvailability.user_id == availability.user_id,
@@ -31,9 +45,9 @@ def create_general_availability(db: Session, availability: GeneralAvailabilityCr
         # Check for overlapping time slots
         for existing in existing_availability:
             if (
-                (availability.start_time >= existing.start_time and availability.start_time < existing.end_time) or
-                (availability.end_time > existing.start_time and availability.end_time <= existing.end_time) or
-                (availability.start_time <= existing.start_time and availability.end_time >= existing.end_time)
+                (start_time_utc >= existing.start_time and start_time_utc < existing.end_time) or
+                (end_time_utc > existing.start_time and end_time_utc <= existing.end_time) or
+                (start_time_utc <= existing.start_time and end_time_utc >= existing.end_time)
             ):
                 raise HTTPException(
                     status_code=400,
@@ -44,8 +58,8 @@ def create_general_availability(db: Session, availability: GeneralAvailabilityCr
         db_availability = GeneralAvailability(
             user_id=availability.user_id,
             day=availability.day,
-            start_time=availability.start_time,
-            end_time=availability.end_time,
+            start_time=start_time_utc,
+            end_time=end_time_utc,
             time_zone=availability.time_zone,
         )
         db.add(db_availability)
@@ -53,7 +67,7 @@ def create_general_availability(db: Session, availability: GeneralAvailabilityCr
         db.refresh(db_availability)
         return db_availability
 
-    except IntegrityError as e:
+    except IntegrityError as e: #if the new value break any constrain of db table 
         db.rollback()
         logging.error(f"IntegrityError: {str(e)}")
         raise HTTPException(status_code=400, detail="Database constraint violation error.")
@@ -68,6 +82,15 @@ def create_general_availability(db: Session, availability: GeneralAvailabilityCr
 
 def create_custom_availability(db: Session, availability: CustomAvailabilityCreate):
     try:
+        user_tz = timezone(availability.time_zone)
+       
+        start_time_utc = user_tz.localize(
+            datetime.combine(datetime.today(), availability.start_time)
+        ).astimezone(timezone("UTC")).time()
+        end_time_utc = user_tz.localize(
+            datetime.combine(datetime.today(), availability.end_time)
+        ).astimezone(timezone("UTC")).time()
+        
         # Check if the custom availability already exists for the user on the given date and time
         existing_availability = db.query(CustomAvailability).filter(
             CustomAvailability.user_id == availability.user_id,
@@ -78,9 +101,9 @@ def create_custom_availability(db: Session, availability: CustomAvailabilityCrea
         # Check for overlapping time slots
         for existing in existing_availability:
             if (
-                (availability.start_time >= existing.start_time and availability.start_time < existing.end_time) or
-                (availability.end_time > existing.start_time and availability.end_time <= existing.end_time) or
-                (availability.start_time <= existing.start_time and availability.end_time >= existing.end_time)
+                (start_time_utc >= existing.start_time and start_time_utc < existing.end_time) or
+                (end_time_utc > existing.start_time and end_time_utc <= existing.end_time) or
+                (start_time_utc <= existing.start_time and end_time_utc >= existing.end_time)
             ):
                 raise HTTPException(
                     status_code=400,
@@ -91,8 +114,8 @@ def create_custom_availability(db: Session, availability: CustomAvailabilityCrea
         db_availability = CustomAvailability(
             user_id=availability.user_id,
             date=availability.date,
-            start_time=availability.start_time,
-            end_time=availability.end_time,
+            start_time=start_time_utc,
+            end_time=end_time_utc,
             time_zone=availability.time_zone,
         )
         db.add(db_availability)
@@ -108,13 +131,11 @@ def create_custom_availability(db: Session, availability: CustomAvailabilityCrea
 
     except Exception as e:
         print(e)
+        logging.error(f"{str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
     
 
 
-from datetime import datetime, timedelta
-from typing import List, Dict
-from pytz import timezone
 
 def get_common_availability(db: Session, user_ids: List[int], start_date: date, end_date: date, tz: str) -> Dict:
     # Convert timezone
@@ -123,14 +144,15 @@ def get_common_availability(db: Session, user_ids: List[int], start_date: date, 
     # Store availability per user
     user_availability = []
 
-    # Iterate over all user IDs
+    # Iterate over all user IDs and fatch custom and general availabity
     for user_id in user_ids:
-        # Fetch custom and general availability
+        # Fetch custom  availability
         custom_availability = db.query(CustomAvailability).filter(
             CustomAvailability.user_id == user_id,
             CustomAvailability.date.between(start_date, end_date)
         ).all()
 
+        # fatch general availability 
         general_availability = db.query(GeneralAvailability).filter(
             GeneralAvailability.user_id == user_id
         ).all()
@@ -147,37 +169,45 @@ def get_common_availability(db: Session, user_ids: List[int], start_date: date, 
 
         # Track availability for this user
         user_slots = {}
-
+        custom_dates = []
         # Handle custom availability
         for availability in custom_availability:
             date_str = availability.date.strftime('%d-%m-%Y')
             start_time = availability.start_time
             end_time = availability.end_time
+            custom_dates.append(availability.date)
 
             # Convert to localized time
             start_time = user_timezone.localize(datetime.combine(availability.date, start_time))
             end_time = user_timezone.localize(datetime.combine(availability.date, end_time))
 
             # Check for conflicts with events
-            conflicts = False
-            for event in scheduled_events:
-                event_start = event.start_time
-                event_end = event.end_time
+            # conflicts = False
+            # for event in scheduled_events:
+            #     event_start = user_timezone.localize(datetime.combine(event.date, event.start_time))
+            #     event_end = user_timezone.localize(datetime.combine(event.date, event.end_time))
 
-                if start_time < event_end and end_time > event_start:  # Overlapping event
-                    conflicts = True
-                    break
+            #     if start_time < event_end and end_time > event_start:  # Overlapping event
+            #         conflicts = True
+            #         break
 
             # If no conflict, add to slots
-            if not conflicts:
-                user_slots.setdefault(date_str, [])
-                user_slots[date_str].append(f"{start_time.strftime('%I:%M%p')}-{end_time.strftime('%I:%M%p')}")
+            
+            user_slots.setdefault(date_str, [])
+            user_slots[date_str].append(f"{start_time.strftime('%I:%M%p')}-{end_time.strftime('%I:%M%p')}")
 
-        # Handle general availability if no custom slots exist for a date
+        
+        
+        # Handle general availability only for dates without custom slots
+        
         for availability in general_availability:
             current_date = start_date
+
+            print(type(current_date))
             while current_date <= end_date:
-                if availability.day.lower() == current_date.strftime('%A').lower():  # Match weekday
+                
+                if availability.day.lower() == current_date.strftime('%A').lower() and current_date not in custom_dates:  # Match weekday
+                    
                     date_str = current_date.strftime('%d-%m-%Y')
                     start_time = availability.start_time
                     end_time = availability.end_time
@@ -187,19 +217,19 @@ def get_common_availability(db: Session, user_ids: List[int], start_date: date, 
                     end_time = user_timezone.localize(datetime.combine(current_date, end_time))
 
                     # Check for conflicts
-                    conflicts = False
-                    for event in scheduled_events:
-                        event_start = event.start_time
-                        event_end = event.end_time
+                    # conflicts = False
+                    # for event in scheduled_events:
+                    #     event_start = user_timezone.localize(datetime.combine(event.date, event.start_time))
+                    #     event_end = user_timezone.localize(datetime.combine(event.date, event.end_time))
 
-                        if start_time < event_end and end_time > event_start:  # Overlapping event
-                            conflicts = True
-                            break
+                    #     if start_time < event_end and end_time > event_start:  # Overlapping event
+                    #         conflicts = True
+                    #         break
 
                     # If no conflict, add to slots
-                    if not conflicts:
-                        user_slots.setdefault(date_str, [])
-                        user_slots[date_str].append(f"{start_time.strftime('%I:%M%p')}-{end_time.strftime('%I:%M%p')}")
+                    
+                    user_slots.setdefault(date_str, [])
+                    user_slots[date_str].append(f"{start_time.strftime('%I:%M%p')}-{end_time.strftime('%I:%M%p')}")
 
                 current_date += timedelta(days=1)
 
@@ -233,6 +263,3 @@ def get_common_availability(db: Session, user_ids: List[int], start_date: date, 
         current_date += timedelta(days=1)
 
     return common_availability
-
-
-

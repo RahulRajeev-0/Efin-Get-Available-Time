@@ -64,3 +64,9 @@ def get_common_availability(payload: schemas.AvailabilityRequest, db: Session = 
     available_slots = crud.get_common_availability(db, user_ids, start_date_obj, end_date_obj, timezone)
 
     return available_slots
+
+
+
+
+# extra working on 
+
