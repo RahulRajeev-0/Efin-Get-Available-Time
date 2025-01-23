@@ -1,0 +1,20 @@
+how the function works
+
+Here is the corrected version of the provided text:
+
+---
+
+Iterate through the `user_id` list containing all the user IDs to get the common availabilities of the users.  
+For each user, retrieve the general availability and custom availability and create a list of dictionaries called `user_availability`:  
+`user_availability = [{"date": [available time slots]}]`  
+
+Each dictionary represents the availability of a particular user.  
+After retrieving the availability of all the users in the `user_availability` list of dictionaries, proceed to find the common availability.  
+
+Create a `common_availability` dictionary.  
+Iterate through `user_availability` and create a `user_slots` list of sets `[set]` by getting the availability of each user for a particular date and storing their available time slots in a set.  
+Use set intersection to find the common availability time slots from the `user_slots` sets and add the data to the `common_availability` dictionary, with the date as the key and the list of time slots as the value.
+
+--- 
+
+This ensures clarity and correctness while keeping the original intent intact.

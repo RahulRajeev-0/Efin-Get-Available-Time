@@ -138,6 +138,7 @@ def create_custom_availability(db: Session, availability: CustomAvailabilityCrea
 
 
 def get_common_availability(db: Session, user_ids: List[int], start_date: date, end_date: date, tz: str) -> Dict:
+  
     # Convert timezone
     user_timezone = timezone(tz)
 
@@ -245,7 +246,7 @@ def get_common_availability(db: Session, user_ids: List[int], start_date: date, 
         date_str = current_date.strftime('%d-%m-%Y')
 
         # Collect slots from all users for this date
-        daily_slots = []
+        daily_slots = [] # daily_slots = [set1, set2, {time_slot of user}] ie. daily_slots = list of sets
         for user_slots in user_availability:
             if date_str in user_slots:
                 daily_slots.append(set(user_slots[date_str]))
@@ -256,7 +257,8 @@ def get_common_availability(db: Session, user_ids: List[int], start_date: date, 
             continue
 
         # Intersect slots to find common availability
-        common_slots = set.intersection(*daily_slots) if daily_slots else set()
+        common_slots = set.intersection(*daily_slots) if daily_slots else set() 
+        # common_slots is set with common time_slots of all the users
         if common_slots:
             common_availability[date_str] = list(common_slots)
 
